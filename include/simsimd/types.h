@@ -8,11 +8,15 @@
  *  - Sized aliases for numeric types, like: `simsimd_i32_t` and `simsimd_f64_t`.
  *  - Macros for internal compiler/hardware checks, like: `_SIMSIMD_TARGET_ARM`.
  *  - Macros for feature controls, like: `SIMSIMD_TARGET_NEON`
+ *  1. 相当于对各种平台的intrinsic做一个simsimd的统一命名
+ *  2. 内部编译器或者硬件检查, `_SIMSIMD_TARGET_ARM`
+ *  3. 特征控制, `SIMSIMD_TARGET_NEON`
  */
 #ifndef SIMSIMD_TYPES_H
 #define SIMSIMD_TYPES_H
 
 // Inferring target OS: Windows, MacOS, or Linux
+// 对OS进行宏判断 --> 然后定义 _SIMSIMD_DEFINED_Platform
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
 #define _SIMSIMD_DEFINED_WINDOWS 1
 #elif defined(__APPLE__) && defined(__MACH__)
@@ -23,11 +27,12 @@
 
 // Annotation for the public API symbols:
 //
-// - `SIMSIMD_PUBLIC` is used for functions that are part of the public API.
-// - `SIMSIMD_INTERNAL` is used for internal helper functions with unstable APIs.
-// - `SIMSIMD_DYNAMIC` is used for functions that are part of the public API, but are dispatched at runtime.
-//
+// - `SIMSIMD_PUBLIC` is used for functions that are part of the public API, 公共API.
+// - `SIMSIMD_INTERNAL` is used for internal helper functions with unstable APIs, 内部使用的Helper函数API.
+// - `SIMSIMD_DYNAMIC` is used for functions that are part of the public API, but are dispatched at runtime, 运行时动态分发API.
+// *  这里可以考虑的是, 因为所有的文件都是以头文件进行外放的, 因此基本都要通过inline static修饰
 #if defined(_WIN32) || defined(__CYGWIN__)
+// 对于Window平台主要还是dllexport: dynamic link lib
 #define SIMSIMD_DYNAMIC __declspec(dllexport)
 #define SIMSIMD_PUBLIC inline static
 #define SIMSIMD_INTERNAL inline static
@@ -41,7 +46,9 @@
 #define SIMSIMD_INTERNAL inline static
 #endif
 
-// Compiling for Arm: _SIMSIMD_TARGET_ARM
+/** 针对CPU极其特性定义simsimd */
+
+// Compiling for Arm: _SIMSIMD_TARGET_ARM, 定义ARM
 #if !defined(_SIMSIMD_TARGET_ARM)
 #if defined(__aarch64__) || defined(_M_ARM64)
 #define _SIMSIMD_TARGET_ARM 1
@@ -50,7 +57,7 @@
 #endif // defined(__aarch64__) || defined(_M_ARM64)
 #endif // !defined(_SIMSIMD_TARGET_ARM)
 
-// Compiling for x86: _SIMSIMD_TARGET_X86
+// Compiling for x86: _SIMSIMD_TARGET_X86, 定义x86
 #if !defined(_SIMSIMD_TARGET_X86)
 #if defined(__x86_64__) || defined(_M_X64)
 #define _SIMSIMD_TARGET_X86 1
@@ -59,7 +66,7 @@
 #endif // defined(__x86_64__) || defined(_M_X64)
 #endif // !defined(_SIMSIMD_TARGET_X86)
 
-// Compiling for Arm: SIMSIMD_TARGET_NEON
+// Compiling for Arm: SIMSIMD_TARGET_NEON, 定义ARM_NEON
 #if !defined(SIMSIMD_TARGET_NEON) || (SIMSIMD_TARGET_NEON && !_SIMSIMD_TARGET_ARM)
 #if defined(__ARM_NEON)
 #define SIMSIMD_TARGET_NEON _SIMSIMD_TARGET_ARM
@@ -223,10 +230,12 @@
 #endif
 #endif // !defined(SIMSIMD_TARGET_SIERRA) || ...
 
+// 如下是根据不同的平台引入intrin头文件
 #if defined(_MSC_VER)
 #include <intrin.h>
 #else
 
+// 主要针对arm的架构
 #if SIMSIMD_TARGET_NEON
 #include <arm_neon.h>
 #endif
@@ -235,6 +244,7 @@
 #include <arm_sve.h>
 #endif
 
+// 主要针对intel的架构
 #if SIMSIMD_TARGET_HASWELL || SIMSIMD_TARGET_SKYLAKE || SIMSIMD_TARGET_ICE || SIMSIMD_TARGET_GENOA || \
     SIMSIMD_TARGET_SAPPHIRE || SIMSIMD_TARGET_TURIN
 #include <immintrin.h>
@@ -242,6 +252,7 @@
 
 #endif
 
+// 这里是针对sqrt运算的优化, 是否启用simsimd的sqrt运算
 #if !defined(SIMSIMD_SQRT)
 #include <math.h>
 #define SIMSIMD_SQRT(x) (sqrt(x))
@@ -257,14 +268,17 @@
 #define SIMSIMD_LOG(x) (log(x))
 #endif
 
+// FP32的除法误差
 #if !defined(SIMSIMD_F32_DIVISION_EPSILON)
 #define SIMSIMD_F32_DIVISION_EPSILON (1e-7)
 #endif
 
+// FP16的除法误差
 #if !defined(SIMSIMD_F16_DIVISION_EPSILON)
 #define SIMSIMD_F16_DIVISION_EPSILON (1e-3)
 #endif
 
+// 相当于这里按照C语言的方式进行编译, 避免CPP重载带来的问题
 #ifdef __cplusplus
 extern "C" {
 #endif
