@@ -301,7 +301,7 @@ typedef double simsimd_f64_t;
 typedef simsimd_u64_t simsimd_size_t;
 typedef simsimd_f64_t simsimd_distance_t;
 
-/*  @brief  Half-precision floating-point type.
+/*  @brief  Half-precision floating-point type. 半精度浮点数: f16
  *
  *  - GCC or Clang on 64-bit Arm: `__fp16`, may require `-mfp16-format` option.
  *  - GCC or Clang on 64-bit x86: `_Float16`.
@@ -331,6 +331,7 @@ typedef _Float16 simsimd_f16_t;
 typedef unsigned short simsimd_f16_t;
 #endif
 
+// 针对半浮点数: bf16
 #if !defined(SIMSIMD_NATIVE_BF16) || SIMSIMD_NATIVE_BF16
 /**
  *  @brief  Half-precision brain-float type.
@@ -380,7 +381,7 @@ typedef unsigned short simsimd_bf16_t;
 #endif
 
 /**
- *  @brief  Alias for the half-precision floating-point type on Arm.
+ *  @brief  Alias for the half-precision floating-point type on Arm. 在Arm上的半精度别名, 针对编译器进行重命名
  *
  *  Clang and GCC bring the `float16_t` symbol when you compile for Aarch64.
  *  MSVC lacks it, and it's `vld1_f16`-like intrinsics are in reality macros,
@@ -401,6 +402,11 @@ typedef unsigned short simsimd_bf16_t;
 /*
  *  Let's make sure the sizes of the types are as expected.
  *  In C the `_Static_assert` is only available with C 11 and later.
+ *  
+ *  定义static_assert: ##是token连接符, 
+ *  eg: SIMSIMD_STATIC_ASSERT(sizeof(simsimd_b8_t) == 1, simsimd_b8_t_must_be_1_byte);
+ *  --> typedef char static_assertion_simsimd_b8_t_must_be_1_byte[sizeof(simsimd_b8_t) == 1 ? 1 : -1]
+ *  --> 如果cond不成立, 那么-1将会导致编译错误
  */
 #define SIMSIMD_STATIC_ASSERT(cond, msg) typedef char static_assertion_##msg[(cond) ? 1 : -1]
 SIMSIMD_STATIC_ASSERT(sizeof(simsimd_b8_t) == 1, simsimd_b8_t_must_be_1_byte);
@@ -418,12 +424,14 @@ SIMSIMD_STATIC_ASSERT(sizeof(simsimd_f64_t) == 8, simsimd_f64_t_must_be_8_bytes)
 SIMSIMD_STATIC_ASSERT(sizeof(simsimd_f16_t) == 2, simsimd_f16_t_must_be_2_bytes);
 SIMSIMD_STATIC_ASSERT(sizeof(simsimd_bf16_t) == 2, simsimd_bf16_t_must_be_2_bytes);
 
+// 定义解引用和赋值
 #define SIMSIMD_DEREFERENCE(x) (*(x))
 #define SIMSIMD_EXPORT(x, y) *(y) = x
 
 /**
  *  @brief  Returns the value of the half-precision floating-point number,
  *          potentially decompressed into single-precision.
+ *          将半精度 <--> 单精度, 需要区分是否编译器原生支持, 否则需要自行处理
  */
 #if !defined(SIMSIMD_F16_TO_F32)
 #if SIMSIMD_NATIVE_F16
@@ -438,6 +446,7 @@ SIMSIMD_STATIC_ASSERT(sizeof(simsimd_bf16_t) == 2, simsimd_bf16_t_must_be_2_byte
 /**
  *  @brief  Returns the value of the half-precision brain floating-point number,
  *          potentially decompressed into single-precision.
+ *          原理同上
  */
 #if !defined(SIMSIMD_BF16_TO_F32)
 #if SIMSIMD_NATIVE_BF16
@@ -449,6 +458,7 @@ SIMSIMD_STATIC_ASSERT(sizeof(simsimd_bf16_t) == 2, simsimd_bf16_t_must_be_2_byte
 #endif
 #endif
 
+// 如下还是这种类型的互相转换
 #if !defined(SIMSIMD_F32_TO_I8)
 #define SIMSIMD_F32_TO_I8(x, y) \
     *(y) = (simsimd_i8_t)((x) > 127 ? 127 : ((x) < -128 ? -128 : (int)((x) + ((x) < 0 ? -0.5f : 0.5f))))
@@ -466,13 +476,13 @@ SIMSIMD_STATIC_ASSERT(sizeof(simsimd_bf16_t) == 2, simsimd_bf16_t_must_be_2_byte
     *(y) = (simsimd_u8_t)((x) > 255 ? 255 : ((x) < 0 ? 0 : (int)((x) + ((x) < 0 ? -0.5 : 0.5))))
 #endif
 
-/** @brief  Convenience type for half-precision floating-point type conversions. */
+/** @brief  Convenience type for half-precision floating-point type conversions. f32和i32的union */
 typedef union {
     unsigned i;
     float f;
 } simsimd_f32i32_t;
 
-/** @brief  Convenience type addressing the real and imaginary parts of a half-precision complex number. */
+/** @brief  Convenience type addressing the real and imaginary parts of a half-precision complex number. 复数类型 */
 typedef struct {
     simsimd_f16_t real;
     simsimd_f16_t imag;
@@ -499,6 +509,7 @@ typedef struct {
 /**
  *  @brief  Computes `1/sqrt(x)` using the trick from Quake 3,
  *          replacing the magic numbers with the ones suggested by Jan Kadlec.
+ *          快速计算 1 / sqrt(x)的函数, 采用浮点数存储的性质, 将除法转换为更低代价的乘法和加法
  *
  *  Subsequent additions by hardware manufacturers have made this algorithm redundant for the most part.
  *  For example, on x86, Intel introduced the SSE instruction `rsqrtss` in 1999. In a 2009 benchmark on
@@ -521,6 +532,7 @@ SIMSIMD_INTERNAL simsimd_f32_t simsimd_approximate_inverse_square_root(simsimd_f
 /**
  *  @brief  Approximates `sqrt(x)` using the fast inverse square root trick
  *          with adjustments for direct square root approximation.
+ *          上述操作的倒数 --> 平方
  *
  *  Similar to `rsqrt` approximation but multiplies by `number` to get `sqrt`.
  *  This technique is useful where `sqrt` approximation is needed in performance-critical code,
@@ -545,6 +557,7 @@ SIMSIMD_INTERNAL simsimd_f32_t simsimd_approximate_log(simsimd_f32_t number) {
 /**
  *  @brief  For compilers that don't natively support the `_Float16` type,
  *          upcasts contents into a more conventional `float`.
+ *          这里相当于手动实现半精度和单精度浮点数之间的转换
  *
  *  @warning  This function won't handle boundary conditions well.
  *
