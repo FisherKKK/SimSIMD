@@ -75,6 +75,7 @@ SIMSIMD_PUBLIC void simsimd_l2sq_bf16_accurate(simsimd_bf16_t const* a, simsimd_
 /*  SIMD-powered backends for Arm NEON, mostly using 32-bit arithmetic over 128-bit words.
  *  By far the most portable backend, covering most Arm v8 devices, over a billion phones, and almost all
  *  server CPUs produced before 2023.
+ *  Arm v8之前的所有设备
  */
 SIMSIMD_PUBLIC void simsimd_l2_f64_neon(simsimd_f64_t const* a, simsimd_f64_t const* b, simsimd_size_t n, simsimd_distance_t* d);
 SIMSIMD_PUBLIC void simsimd_l2sq_f64_neon(simsimd_f64_t const* a, simsimd_f64_t const* b, simsimd_size_t n, simsimd_distance_t* d);
@@ -116,6 +117,7 @@ SIMSIMD_PUBLIC void simsimd_cos_f64_sve(simsimd_f64_t const* a, simsimd_f64_t co
  *  Practically all modern x86 CPUs support AVX2, FMA, and F16C, making it a perfect baseline for SIMD algorithms.
  *  On other hand, there is no need to implement AVX2 versions of `f32` and `f64` functions, as those are
  *  properly vectorized by recent compilers.
+ *  AVX2, 支持最广泛的CPU架构, 从Haswell开始, 并且编译器已经为f32和f64实现了良好的auto vectorized
  */
 SIMSIMD_PUBLIC void simsimd_l2_i8_haswell(simsimd_i8_t const* a, simsimd_i8_t const* b, simsimd_size_t n, simsimd_distance_t* d);
 SIMSIMD_PUBLIC void simsimd_l2sq_i8_haswell(simsimd_i8_t const* a, simsimd_i8_t const* b, simsimd_size_t n, simsimd_distance_t* d);
@@ -183,6 +185,10 @@ SIMSIMD_PUBLIC void simsimd_cos_f16_sapphire(simsimd_f16_t const* a, simsimd_f16
 SIMSIMD_PUBLIC void simsimd_cos_i8_sierra(simsimd_i8_t const* a, simsimd_i8_t const* b, simsimd_size_t n, simsimd_distance_t* d);
 // clang-format on
 
+// 这边之后应该就是宏的动态分发
+// 主要是根据: 架构 + 输入类型 + 中间结果累加类型 + 类型转换器 --> 函数生成
+
+// 最基本的L2 Square
 #define SIMSIMD_MAKE_L2SQ(name, input_type, accumulator_type, load_and_convert)                                 \
     SIMSIMD_PUBLIC void simsimd_l2sq_##input_type##_##name(simsimd_##input_type##_t const *a,                   \
                                                            simsimd_##input_type##_t const *b, simsimd_size_t n, \
@@ -196,6 +202,7 @@ SIMSIMD_PUBLIC void simsimd_cos_i8_sierra(simsimd_i8_t const* a, simsimd_i8_t co
         *result = d2;                                                                                           \
     }
 
+// 最基本的L2
 #define SIMSIMD_MAKE_L2(name, input_type, accumulator_type, load_and_convert)                                 \
     SIMSIMD_PUBLIC void simsimd_l2_##input_type##_##name(simsimd_##input_type##_t const *a,                   \
                                                          simsimd_##input_type##_t const *b, simsimd_size_t n, \
@@ -204,6 +211,7 @@ SIMSIMD_PUBLIC void simsimd_cos_i8_sierra(simsimd_i8_t const* a, simsimd_i8_t co
         *result = SIMSIMD_SQRT(*result);                                                                      \
     }
 
+// 角度计算
 #define SIMSIMD_MAKE_COS(name, input_type, accumulator_type, load_and_convert)                                 \
     SIMSIMD_PUBLIC void simsimd_cos_##input_type##_##name(simsimd_##input_type##_t const *a,                   \
                                                           simsimd_##input_type##_t const *b, simsimd_size_t n, \
@@ -224,6 +232,7 @@ SIMSIMD_PUBLIC void simsimd_cos_i8_sierra(simsimd_i8_t const* a, simsimd_i8_t co
         }                                                                                                      \
     }
 
+// 对于顺序的直接解引用load and convert直接解引用即可
 SIMSIMD_MAKE_COS(serial, f64, f64, SIMSIMD_DEREFERENCE)  // simsimd_cos_f64_serial
 SIMSIMD_MAKE_L2SQ(serial, f64, f64, SIMSIMD_DEREFERENCE) // simsimd_l2sq_f64_serial
 SIMSIMD_MAKE_L2(serial, f64, f64, SIMSIMD_DEREFERENCE)   // simsimd_l2_f64_serial
@@ -232,6 +241,7 @@ SIMSIMD_MAKE_COS(serial, f32, f32, SIMSIMD_DEREFERENCE)  // simsimd_cos_f32_seri
 SIMSIMD_MAKE_L2SQ(serial, f32, f32, SIMSIMD_DEREFERENCE) // simsimd_l2sq_f32_serial
 SIMSIMD_MAKE_L2(serial, f32, f32, SIMSIMD_DEREFERENCE)   // simsimd_l2_f32_serial
 
+// 根据累加器类型要进行变换
 SIMSIMD_MAKE_COS(serial, f16, f32, SIMSIMD_F16_TO_F32)  // simsimd_cos_f16_serial
 SIMSIMD_MAKE_L2SQ(serial, f16, f32, SIMSIMD_F16_TO_F32) // simsimd_l2sq_f16_serial
 SIMSIMD_MAKE_L2(serial, f16, f32, SIMSIMD_F16_TO_F32)   // simsimd_l2_f16_serial
@@ -248,6 +258,7 @@ SIMSIMD_MAKE_COS(serial, u8, i32, SIMSIMD_DEREFERENCE)  // simsimd_cos_u8_serial
 SIMSIMD_MAKE_L2SQ(serial, u8, i32, SIMSIMD_DEREFERENCE) // simsimd_l2sq_u8_serial
 SIMSIMD_MAKE_L2(serial, u8, i32, SIMSIMD_DEREFERENCE)   // simsimd_l2_u8_serial
 
+// 累加器是f64, 更加高精度版本
 SIMSIMD_MAKE_COS(accurate, f32, f64, SIMSIMD_DEREFERENCE)  // simsimd_cos_f32_accurate
 SIMSIMD_MAKE_L2SQ(accurate, f32, f64, SIMSIMD_DEREFERENCE) // simsimd_l2sq_f32_accurate
 SIMSIMD_MAKE_L2(accurate, f32, f64, SIMSIMD_DEREFERENCE)   // simsimd_l2_f32_accurate
@@ -259,6 +270,14 @@ SIMSIMD_MAKE_L2(accurate, f16, f64, SIMSIMD_F16_TO_F32)   // simsimd_l2_f16_accu
 SIMSIMD_MAKE_COS(accurate, bf16, f64, SIMSIMD_BF16_TO_F32)  // simsimd_cos_bf16_accurate
 SIMSIMD_MAKE_L2SQ(accurate, bf16, f64, SIMSIMD_BF16_TO_F32) // simsimd_l2sq_bf16_accurate
 SIMSIMD_MAKE_L2(accurate, bf16, f64, SIMSIMD_BF16_TO_F32)   // simsimd_l2_bf16_accurate
+
+/** #pragma GCC push_options 用于保存目前已有的编译器选项
+ *  #pragma GCC xxx 用于设置新的GCC
+ *  #pragma GCC pop_options 用于还原之前保存的编译器选项
+ * 
+ * #pragma clang attribute push(__attribute__((target("avx2"))), apply_to = function)
+ * #pragma clang attribute pop
+ */
 
 #if _SIMSIMD_TARGET_ARM
 #if SIMSIMD_TARGET_NEON
@@ -1013,14 +1032,28 @@ SIMSIMD_PUBLIC void simsimd_cos_bf16_sve(simsimd_bf16_t const *a_enum, simsimd_b
 #pragma clang attribute push(__attribute__((target("avx2"))), apply_to = function)
 
 SIMSIMD_INTERNAL simsimd_f32_t _simsimd_sqrt_f32_haswell(simsimd_f32_t x) {
+    // _mm_set_ss: copy to float --> dst and return
+    // _mm_sqrt_ps: compute sqrt
+    // _mm_cvtss_f32: copy lower-32bit --> dst
+    // convert single --> f32
     return _mm_cvtss_f32(_mm_sqrt_ps(_mm_set_ss(x)));
 }
+
+// f64的sqrt
 SIMSIMD_INTERNAL simsimd_f64_t _simsimd_sqrt_f64_haswell(simsimd_f64_t x) {
+    // set double
+    // sqrt double
+    // cvts double --> f64
     return _mm_cvtsd_f64(_mm_sqrt_pd(_mm_set_sd(x)));
 }
 
+// 所以这个函数本质上是计算f64的余弦, 但是采用 f32向量化 + 牛顿迭代
 SIMSIMD_INTERNAL simsimd_distance_t _simsimd_cos_normalize_f64_haswell(simsimd_f64_t ab, simsimd_f64_t a2,
                                                                        simsimd_f64_t b2) {
+    /** 1. <a, b> = (a \dot b) / (|a| * |b|)
+     *      如果两个模中存在任意一个0, 那么结果就是0
+     *      如果分子为0, 那么也是1 - 0 = 1
+     */
 
     // If both vectors have magnitude 0, the distance is 0.
     if (a2 == 0 && b2 == 0) return 0;
@@ -1033,20 +1066,28 @@ SIMSIMD_INTERNAL simsimd_distance_t _simsimd_cos_normalize_f64_haswell(simsimd_f
     // The latency of the native instruction is 4 cycles and it's broadly supported.
     // For single-precision floats it has a maximum relative error of 1.5*2^-12.
     // Higher precision isn't implemented on older CPUs. See `_simsimd_cos_normalize_f64_skylake` for that.
+
+    // set_pack_double --> 128 bit == 2 * double
     __m128d squares = _mm_set_pd(a2, b2);
+    
+    // 这里使用的是reverse sqrt, 但是事先都转换成了f32
     __m128d rsqrts = _mm_cvtps_pd(_mm_rsqrt_ps(_mm_cvtpd_ps(squares)));
     // Newton-Raphson iteration for reciprocal square root:
     // https://en.wikipedia.org/wiki/Newton%27s_method
+    
+    // 这里相当于做了牛顿迭代
     rsqrts = _mm_add_pd( //
         _mm_mul_pd(_mm_set1_pd(1.5), rsqrts),
         _mm_mul_pd(_mm_mul_pd(_mm_mul_pd(squares, _mm_set1_pd(-0.5)), rsqrts), _mm_mul_pd(rsqrts, rsqrts)));
 
+    // unpackhi_pd --> unpack high bit and interleave
     simsimd_f64_t a2_reciprocal = _mm_cvtsd_f64(_mm_unpackhi_pd(rsqrts, rsqrts));
     simsimd_f64_t b2_reciprocal = _mm_cvtsd_f64(rsqrts);
     simsimd_distance_t result = 1 - ab * a2_reciprocal * b2_reciprocal;
     return result > 0 ? result : 0;
 }
 
+// f32的sqrt, 这里就可以直接算
 SIMSIMD_INTERNAL simsimd_distance_t _simsimd_cos_normalize_f32_haswell(simsimd_f32_t ab, simsimd_f32_t a2,
                                                                        simsimd_f32_t b2) {
 
@@ -1063,7 +1104,7 @@ SIMSIMD_INTERNAL simsimd_distance_t _simsimd_cos_normalize_f32_haswell(simsimd_f
     // Compute the reciprocal square root of the squares using `_mm_rsqrt_ps` (single-precision)
     __m128 rsqrts = _mm_rsqrt_ps(squares);
 
-    // Perform one iteration of Newton-Raphson refinement to improve the precision of rsqrt:
+    // Perform one iteration of Newton-Raphson refinement to improve the precision of rsqrt, 进行了一轮精度的提高:
     // Formula: y' = y * (1.5 - 0.5 * x * y * y)
     __m128 half = _mm_set1_ps(0.5f);
     __m128 three_halves = _mm_set1_ps(1.5f);
@@ -1071,6 +1112,8 @@ SIMSIMD_INTERNAL simsimd_distance_t _simsimd_cos_normalize_f32_haswell(simsimd_f
         _mm_mul_ps(rsqrts, _mm_sub_ps(three_halves, _mm_mul_ps(half, _mm_mul_ps(squares, _mm_mul_ps(rsqrts, rsqrts)))));
 
     // Extract the reciprocal square roots of a2 and b2 from the __m128 register
+    // 这里相当于要将值从_mm128中提取出来, 采用shuffle (根据mask进行选择, 这里就是选择最低位)
+    // ctvss_f32变成f32
     simsimd_f32_t a2_reciprocal = _mm_cvtss_f32(_mm_shuffle_ps(rsqrts, rsqrts, _MM_SHUFFLE(0, 0, 0, 1)));
     simsimd_f32_t b2_reciprocal = _mm_cvtss_f32(rsqrts);
 
@@ -1090,31 +1133,51 @@ SIMSIMD_INTERNAL simsimd_distance_t _simsimd_cos_normalize_f32_haswell(simsimd_f
 #pragma GCC target("avx2", "f16c", "fma")
 #pragma clang attribute push(__attribute__((target("avx2,f16c,fma"))), apply_to = function)
 
+// 计算f16的l2
 SIMSIMD_PUBLIC void simsimd_l2_f16_haswell(simsimd_f16_t const *a, simsimd_f16_t const *b, simsimd_size_t n,
                                            simsimd_distance_t *result) {
     simsimd_l2sq_f16_haswell(a, b, n, result);
     *result = _simsimd_sqrt_f32_haswell(*result);
 }
+
+// 计算f16的l2sq (square), 这里相当于所有的结果先被转换为f32做正常操作, reduce部分全部转换为f64, 因为dist是f64!
 SIMSIMD_PUBLIC void simsimd_l2sq_f16_haswell(simsimd_f16_t const *a, simsimd_f16_t const *b, simsimd_size_t n,
                                              simsimd_distance_t *result) {
+
+    /** AVX2, 采用__m256: 16 * 16 --> 16个f16
+     * 
+     */
     __m256 a_vec, b_vec;
+    
+    // 获得一个全0的256
     __m256 d2_vec = _mm256_setzero_ps();
 
+    //! 这里相当于是一个goto分支, 实现了类似循环的作用: 循环展开!
 simsimd_l2sq_f16_haswell_cycle:
     if (n < 8) {
+        // 剩余的元素数目小于8
+        // 从剩余元素中载入所以是partial_load
         a_vec = _simsimd_partial_load_f16x8_haswell(a, n);
         b_vec = _simsimd_partial_load_f16x8_haswell(b, n);
         n = 0;
     }
     else {
+        // unaligned load 128
+        // 这里相当于正常处理, 从a和b中读8个f16 --> __m128i
+        // 然后将8个f16 --> 8个f32 --> __m256
+        // 对n, a, b进行计数
         a_vec = _mm256_cvtph_ps(_mm_lddqu_si128((__m128i const *)a));
         b_vec = _mm256_cvtph_ps(_mm_lddqu_si128((__m128i const *)b));
         n -= 8, a += 8, b += 8;
     }
+
+    // 对8个f32进行操作, sub ==> fma
+    // fma: x[i] * x[i] + x[i + 1] * x[i + 1] ...
     __m256 d_vec = _mm256_sub_ps(a_vec, b_vec);
     d2_vec = _mm256_fmadd_ps(d_vec, d_vec, d2_vec);
     if (n) goto simsimd_l2sq_f16_haswell_cycle;
 
+    // 当计算完成之后进行reduce
     *result = _simsimd_reduce_f32x8_haswell(d2_vec);
 }
 

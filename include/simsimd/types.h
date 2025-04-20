@@ -629,6 +629,7 @@ SIMSIMD_INTERNAL void simsimd_f32_to_bf16(simsimd_f32_t x, simsimd_bf16_t *resul
     *(unsigned short *)result_ptr = (unsigned short)conv.i;
 }
 
+// rotate and left or right
 SIMSIMD_INTERNAL simsimd_u32_t simsimd_u32_rol(simsimd_u32_t x, int n) { return (x << n) | (x >> (32 - n)); }
 SIMSIMD_INTERNAL simsimd_u16_t simsimd_u16_rol(simsimd_u16_t x, int n) { return (x << n) | (x >> (16 - n)); }
 SIMSIMD_INTERNAL simsimd_u8_t simsimd_u8_rol(simsimd_u8_t x, int n) { return (x << n) | (x >> (8 - n)); }
