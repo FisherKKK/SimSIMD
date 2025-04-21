@@ -862,7 +862,7 @@ SIMSIMD_INTERNAL simsimd_f64_t _simsimd_reduce_f64x4_haswell(__m256d vec) {
     return _mm_cvtsd_f64(vec128);
 }
 
-
+// 对__m256 reduce求和
 SIMSIMD_INTERNAL simsimd_f64_t _simsimd_reduce_f32x8_haswell(__m256 vec) {
     // Convert the lower and higher 128-bit lanes of the input vector to double precision
 
@@ -885,12 +885,18 @@ SIMSIMD_INTERNAL simsimd_f64_t _simsimd_reduce_f32x8_haswell(__m256 vec) {
     return _simsimd_reduce_f64x4_haswell(sum);
 }
 
+// 进行i32 * 8的reduce运算
 SIMSIMD_INTERNAL simsimd_i32_t _simsimd_reduce_i32x8_haswell(__m256i vec) {
+    // 提取低位
     __m128i low = _mm256_castsi256_si128(vec);
+    // 提取高位
     __m128i high = _mm256_extracti128_si256(vec, 1);
+    // 加法
     __m128i sum = _mm_add_epi32(low, high);
+    // 两个两个加法
     sum = _mm_hadd_epi32(sum, sum);
     sum = _mm_hadd_epi32(sum, sum);
+    // 转换成i32
     return _mm_cvtsi128_si32(sum);
 }
 
@@ -1234,8 +1240,11 @@ SIMSIMD_PUBLIC void simsimd_dot_u8_haswell(simsimd_u8_t const *a_scalars, simsim
     *result = ab;
 }
 
+// 将bf16 * 8 --> f32 * 8, 本质上就是左移16位
 SIMSIMD_INTERNAL __m256 _simsimd_bf16x8_to_f32x8_haswell(__m128i x) {
     // Upcasting from `bf16` to `f32` is done by shifting the `bf16` values by 16 bits to the left, like:
+
+    // cast本质上不会编译成任何指令, 只是对待方式变了而已
     return _mm256_castsi256_ps(_mm256_slli_epi32(_mm256_cvtepu16_epi32(x), 16));
 }
 

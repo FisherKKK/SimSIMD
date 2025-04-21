@@ -1181,38 +1181,51 @@ simsimd_l2sq_f16_haswell_cycle:
     *result = _simsimd_reduce_f32x8_haswell(d2_vec);
 }
 
+// 针对f16的向量余弦计算
 SIMSIMD_PUBLIC void simsimd_cos_f16_haswell(simsimd_f16_t const *a, simsimd_f16_t const *b, simsimd_size_t n,
                                             simsimd_distance_t *result) {
+    // 初始化
     __m256 a_vec, b_vec;
     __m256 ab_vec = _mm256_setzero_ps(), a2_vec = _mm256_setzero_ps(), b2_vec = _mm256_setzero_ps();
 
+    // 循环载入f16 * 8
 simsimd_cos_f16_haswell_cycle:
     if (n < 8) {
+        // partial load
         a_vec = _simsimd_partial_load_f16x8_haswell(a, n);
         b_vec = _simsimd_partial_load_f16x8_haswell(b, n);
         n = 0;
     }
     else {
+        // load a --> int128 --> f32 * 8
+        // update a, b, n
         a_vec = _mm256_cvtph_ps(_mm_lddqu_si128((__m128i const *)a));
         b_vec = _mm256_cvtph_ps(_mm_lddqu_si128((__m128i const *)b));
         n -= 8, a += 8, b += 8;
     }
+    // 计算内积后求和, fma
+    // a * b, a * a, b * b
     ab_vec = _mm256_fmadd_ps(a_vec, b_vec, ab_vec);
     a2_vec = _mm256_fmadd_ps(a_vec, a_vec, a2_vec);
     b2_vec = _mm256_fmadd_ps(b_vec, b_vec, b2_vec);
     if (n) goto simsimd_cos_f16_haswell_cycle;
 
+    // reduce求和
     simsimd_f32_t ab = _simsimd_reduce_f32x8_haswell(ab_vec);
     simsimd_f32_t a2 = _simsimd_reduce_f32x8_haswell(a2_vec);
     simsimd_f32_t b2 = _simsimd_reduce_f32x8_haswell(b2_vec);
+    // 计算cosine
     *result = _simsimd_cos_normalize_f32_haswell(ab, a2, b2);
 }
 
+// 计算L2
 SIMSIMD_PUBLIC void simsimd_l2_bf16_haswell(simsimd_bf16_t const *a, simsimd_bf16_t const *b, simsimd_size_t n,
                                             simsimd_distance_t *result) {
     simsimd_l2sq_bf16_haswell(a, b, n, result);
     *result = _simsimd_sqrt_f32_haswell(*result);
 }
+
+// 计算bf16的square, 基本上和f16没什么区别, 核心思路都是转换成f32进行后续处理
 SIMSIMD_PUBLIC void simsimd_l2sq_bf16_haswell(simsimd_bf16_t const *a, simsimd_bf16_t const *b, simsimd_size_t n,
                                               simsimd_distance_t *result) {
     __m256 a_vec, b_vec;
@@ -1225,6 +1238,7 @@ simsimd_l2sq_bf16_haswell_cycle:
         n = 0;
     }
     else {
+        // 转译成f32进行后续计算
         a_vec = _simsimd_bf16x8_to_f32x8_haswell(_mm_lddqu_si128((__m128i const *)a));
         b_vec = _simsimd_bf16x8_to_f32x8_haswell(_mm_lddqu_si128((__m128i const *)b));
         n -= 8, a += 8, b += 8;
@@ -1236,6 +1250,7 @@ simsimd_l2sq_bf16_haswell_cycle:
     *result = _simsimd_reduce_f32x8_haswell(d2_vec);
 }
 
+// 同样的没区别
 SIMSIMD_PUBLIC void simsimd_cos_bf16_haswell(simsimd_bf16_t const *a, simsimd_bf16_t const *b, simsimd_size_t n,
                                              simsimd_distance_t *result) {
     __m256 a_vec, b_vec;
@@ -1263,23 +1278,30 @@ simsimd_cos_bf16_haswell_cycle:
     *result = _simsimd_cos_normalize_f32_haswell(ab, a2, b2);
 }
 
+// 计算i8的L2
 SIMSIMD_PUBLIC void simsimd_l2_i8_haswell(simsimd_i8_t const *a, simsimd_i8_t const *b, simsimd_size_t n,
                                           simsimd_distance_t *result) {
     simsimd_l2sq_i8_haswell(a, b, n, result);
     *result = _simsimd_sqrt_f32_haswell(*result);
 }
+
+// 计算i8的L2_Sqr
 SIMSIMD_PUBLIC void simsimd_l2sq_i8_haswell(simsimd_i8_t const *a, simsimd_i8_t const *b, simsimd_size_t n,
                                             simsimd_distance_t *result) {
 
+    // initialize, 这里相当于是求和的结果
     __m256i d2_i32_low_vec = _mm256_setzero_si256();
     __m256i d2_i32_high_vec = _mm256_setzero_si256();
 
+    // _m256i = i8 * 32
     simsimd_size_t i = 0;
     for (; i + 32 <= n; i += 32) {
         __m256i a_i8_vec = _mm256_lddqu_si256((__m256i const *)(a + i));
         __m256i b_i8_vec = _mm256_lddqu_si256((__m256i const *)(b + i));
 
         // Sign extend `i8` to `i16`
+        // 将i8 --> 有符号扩展到i16:
+        // i8 * 32 --> i8 * 16 | i8 * 16 --> i16 * 16 | i16 * 16
         __m256i a_i16_low_vec = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(a_i8_vec));
         __m256i a_i16_high_vec = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(a_i8_vec, 1));
         __m256i b_i16_low_vec = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(b_i8_vec));
@@ -1288,18 +1310,22 @@ SIMSIMD_PUBLIC void simsimd_l2sq_i8_haswell(simsimd_i8_t const *a, simsimd_i8_t 
         // Subtract
         // After this we will be squaring the values. The sign will be dropped
         // and each difference will be in the range [0, 255].
+        // 减法, 这里相当于要保证范围
         __m256i d_i16_low_vec = _mm256_sub_epi16(a_i16_low_vec, b_i16_low_vec);
         __m256i d_i16_high_vec = _mm256_sub_epi16(a_i16_high_vec, b_i16_high_vec);
 
         // Accumulate into `i32` vectors
+        // madd: i16 * i16 --> i32, 16个i16 --> 8个i32
         d2_i32_low_vec = _mm256_add_epi32(d2_i32_low_vec, _mm256_madd_epi16(d_i16_low_vec, d_i16_low_vec));
         d2_i32_high_vec = _mm256_add_epi32(d2_i32_high_vec, _mm256_madd_epi16(d_i16_high_vec, d_i16_high_vec));
     }
 
     // Accumulate the 32-bit integers from `d2_i32_high_vec` and `d2_i32_low_vec`
+    // 将结果进行reduce
     int d2 = _simsimd_reduce_i32x8_haswell(_mm256_add_epi32(d2_i32_low_vec, d2_i32_high_vec));
 
     // Take care of the tail:
+    // 处理尾部
     for (; i < n; ++i) {
         int n = (int)(a[i]) - b[i];
         d2 += n * n;
@@ -1364,6 +1390,7 @@ SIMSIMD_PUBLIC void simsimd_cos_i8_haswell(simsimd_i8_t const *a, simsimd_i8_t c
     *result = _simsimd_cos_normalize_f32_haswell(ab, a2, b2);
 }
 
+// 如下是针对u8的一套
 SIMSIMD_PUBLIC void simsimd_l2_u8_haswell(simsimd_u8_t const *a, simsimd_u8_t const *b, simsimd_size_t n,
                                           simsimd_distance_t *result) {
     simsimd_l2sq_u8_haswell(a, b, n, result);
@@ -1386,6 +1413,7 @@ SIMSIMD_PUBLIC void simsimd_l2sq_u8_haswell(simsimd_u8_t const *a, simsimd_u8_t 
 
         // Upcast `uint8` to `int16`. Unlike the signed version, we can use the unpacking
         // instructions instead of extracts, as they are much faster and more efficient.
+        // 这里本质上是补0操作  
         __m256i d_i16_low_vec = _mm256_unpacklo_epi8(d_u8_vec, zeros_vec);
         __m256i d_i16_high_vec = _mm256_unpackhi_epi8(d_u8_vec, zeros_vec);
 
@@ -1464,6 +1492,7 @@ SIMSIMD_PUBLIC void simsimd_cos_u8_haswell(simsimd_u8_t const *a, simsimd_u8_t c
     *result = _simsimd_cos_normalize_f32_haswell(ab, a2, b2);
 }
 
+// 针对f32
 SIMSIMD_PUBLIC void simsimd_l2_f32_haswell(simsimd_f32_t const *a, simsimd_f32_t const *b, simsimd_size_t n,
                                            simsimd_distance_t *result) {
     simsimd_l2sq_f32_haswell(a, b, n, result);
