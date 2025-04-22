@@ -1544,6 +1544,7 @@ SIMSIMD_PUBLIC void simsimd_cos_f32_haswell(simsimd_f32_t const *a, simsimd_f32_
     *result = _simsimd_cos_normalize_f64_haswell(ab, a2, b2);
 }
 
+// 如下是针对f64
 SIMSIMD_PUBLIC void simsimd_l2_f64_haswell(simsimd_f64_t const *a, simsimd_f64_t const *b, simsimd_size_t n,
                                            simsimd_distance_t *result) {
     simsimd_l2sq_f64_haswell(a, b, n, result);
@@ -1604,6 +1605,7 @@ SIMSIMD_PUBLIC void simsimd_cos_f64_haswell(simsimd_f64_t const *a, simsimd_f64_
 #pragma GCC target("avx2", "avx512f", "avx512bw", "avx512vl", "bmi2")
 #pragma clang attribute push(__attribute__((target("avx2,avx512f,avx512bw,avx512vl,bmi2"))), apply_to = function)
 
+// 如下是针对skylake的指令
 SIMSIMD_PUBLIC void simsimd_l2_f32_skylake(simsimd_f32_t const *a, simsimd_f32_t const *b, simsimd_size_t n,
                                            simsimd_distance_t *result) {
     simsimd_l2sq_f32_skylake(a, b, n, result);
@@ -1611,25 +1613,34 @@ SIMSIMD_PUBLIC void simsimd_l2_f32_skylake(simsimd_f32_t const *a, simsimd_f32_t
 }
 SIMSIMD_PUBLIC void simsimd_l2sq_f32_skylake(simsimd_f32_t const *a, simsimd_f32_t const *b, simsimd_size_t n,
                                              simsimd_distance_t *result) {
+    // 初始化
     __m512 d2_vec = _mm512_setzero();
     __m512 a_vec, b_vec;
 
+    // 512 = f32 * 16
 simsimd_l2sq_f32_skylake_cycle:
+    // 如果不够16个
     if (n < 16) {
+        // _bzhi_u32相当于copy x, 然后n以上的位reset为0, 这里制作掩码
         __mmask16 mask = (__mmask16)_bzhi_u32(0xFFFFFFFF, n);
+        // 使用掩码load, 非掩码位归0
         a_vec = _mm512_maskz_loadu_ps(mask, a);
         b_vec = _mm512_maskz_loadu_ps(mask, b);
         n = 0;
     }
     else {
+        // 满足16个, 直接load
+        // update a, b, n
         a_vec = _mm512_loadu_ps(a);
         b_vec = _mm512_loadu_ps(b);
         a += 16, b += 16, n -= 16;
     }
+    // sub --> fma
     __m512 d_vec = _mm512_sub_ps(a_vec, b_vec);
     d2_vec = _mm512_fmadd_ps(d_vec, d_vec, d2_vec);
     if (n) goto simsimd_l2sq_f32_skylake_cycle;
 
+    // reduce --> result
     *result = _simsimd_reduce_f32x16_skylake(d2_vec);
 }
 
@@ -1676,6 +1687,7 @@ SIMSIMD_INTERNAL simsimd_distance_t _simsimd_cos_normalize_f64_skylake(simsimd_f
     return result > 0 ? result : 0;
 }
 
+// 计算f32的cos
 SIMSIMD_PUBLIC void simsimd_cos_f32_skylake(simsimd_f32_t const *a, simsimd_f32_t const *b, simsimd_size_t n,
                                             simsimd_distance_t *result) {
     __m512 ab_vec = _mm512_setzero();
@@ -1732,6 +1744,7 @@ simsimd_l2sq_f64_skylake_cycle:
     d2_vec = _mm512_fmadd_pd(d_vec, d_vec, d2_vec);
     if (n) goto simsimd_l2sq_f64_skylake_cycle;
 
+    // f64可以直接reduce!
     *result = _mm512_reduce_add_pd(d2_vec);
 }
 
@@ -1900,6 +1913,8 @@ SIMSIMD_PUBLIC void simsimd_l2_f16_sapphire(simsimd_f16_t const *a, simsimd_f16_
     simsimd_l2sq_f16_sapphire(a, b, n, result);
     *result = _simsimd_sqrt_f32_haswell(*result);
 }
+
+// 针对f16的乘法, 也就是说sapphire架构原生支持f16的运算, 相当于 -, fma都有
 SIMSIMD_PUBLIC void simsimd_l2sq_f16_sapphire(simsimd_f16_t const *a, simsimd_f16_t const *b, simsimd_size_t n,
                                               simsimd_distance_t *result) {
     __m512h d2_vec = _mm512_setzero_ph();
@@ -1987,6 +2002,7 @@ simsimd_l2sq_i8_ice_cycle:
         a += 32, b += 32, n -= 32;
     }
     d_i16s_vec = _mm512_sub_epi16(a_i16_vec, b_i16_vec);
+    // multile + pair add --> i32
     d2_i32_vec = _mm512_dpwssd_epi32(d2_i32_vec, d_i16s_vec, d_i16s_vec);
     if (n) goto simsimd_l2sq_i8_ice_cycle;
 
@@ -2052,6 +2068,7 @@ simsimd_cos_i8_ice_cycle:
     //        _mm512_cvtepi8_epi16(_mm512_extracti64x4_epi64(b_i8_vec, 1)));
     //
     // The new solution is simpler and relies on 3.:
+    // 处理内积相关操作
     ab_i32_vec = _mm512_add_epi32(ab_i32_vec, _mm512_madd_epi16(a_i16_vec, b_i16_vec));
     a2_i32_vec = _mm512_add_epi32(a2_i32_vec, _mm512_madd_epi16(a_i16_vec, a_i16_vec));
     b2_i32_vec = _mm512_add_epi32(b2_i32_vec, _mm512_madd_epi16(b_i16_vec, b_i16_vec));
@@ -2090,6 +2107,7 @@ simsimd_l2sq_u8_ice_cycle:
 
     // Substracting unsigned vectors in AVX-512 is done by saturating subtraction:
     d_u8_vec = _mm512_or_si512(_mm512_subs_epu8(a_u8_vec, b_u8_vec), _mm512_subs_epu8(b_u8_vec, a_u8_vec));
+    // 通过填充0变成i16
     d_i16_low_vec = _mm512_unpacklo_epi8(d_u8_vec, zeros_vec);
     d_i16_high_vec = _mm512_unpackhi_epi8(d_u8_vec, zeros_vec);
 
@@ -2149,6 +2167,7 @@ simsimd_cos_u8_ice_cycle:
     *result = _simsimd_cos_normalize_f32_haswell(ab, a2, b2);
 }
 
+// 针对i4的处理
 SIMSIMD_PUBLIC void simsimd_l2_i4x2_ice(simsimd_i4x2_t const *a, simsimd_i4x2_t const *b, simsimd_size_t n_words,
                                         simsimd_distance_t *result) {
     simsimd_l2sq_i4x2_ice(a, b, n_words, result);
@@ -2157,7 +2176,7 @@ SIMSIMD_PUBLIC void simsimd_l2_i4x2_ice(simsimd_i4x2_t const *a, simsimd_i4x2_t 
 SIMSIMD_PUBLIC void simsimd_l2sq_i4x2_ice(simsimd_i4x2_t const *a, simsimd_i4x2_t const *b, simsimd_size_t n_words,
                                           simsimd_distance_t *result) {
 
-    // While `int8_t` covers the range [-128, 127], `int4_t` covers only [-8, 7].
+    // While `int8_t` covers the range [-128, 127], `int4_t` covers only [-8, 7] --> [0, 1, 2, 3, 4, --> 15].
     // The absolute difference between two 4-bit integers is at most 15 and it is always a `uint4_t` value!
     // Moreover, it's square is at most 225, which fits into `uint8_t` and can be computed with a single
     // lookup table. Accumulating those values is similar to checksumming, a piece of cake for SIMD!
@@ -2173,6 +2192,7 @@ SIMSIMD_PUBLIC void simsimd_l2sq_i4x2_ice(simsimd_i4x2_t const *a, simsimd_i4x2_
         (char)225, (char)196, (char)169, (char)144, 121, 100, 81, 64, 49, 36, 25, 16, 9, 4, 1, 0);
 
     /// The mask used to take the low nibble of each byte.
+    /// 这里相当于是低位的掩码, 每一个i8的低位掩码
     __m512i const i4_nibble_vec = _mm512_set1_epi8(0x0F);
 
     // Temporaries:
@@ -2185,6 +2205,7 @@ SIMSIMD_PUBLIC void simsimd_l2sq_i4x2_ice(simsimd_i4x2_t const *a, simsimd_i4x2_
     // Accumulators:
     __m512i d2_u32_vec = _mm512_setzero_si512();
 
+    // 这里读取等操作都是按照i8, 但是运算是按照i4
 simsimd_l2sq_i4x2_ice_cycle:
     if (n_words < 64) {
         __mmask64 mask = (__mmask64)_bzhi_u64(0xFFFFFFFFFFFFFFFF, n_words);
@@ -2198,11 +2219,19 @@ simsimd_l2sq_i4x2_ice_cycle:
         a += 64, b += 64, n_words -= 64;
     }
 
+    // 这里相当于是a的低4位
     // Unpack the 4-bit values into 8-bit values with an empty top nibble.
-    a_i8_low_vec = _mm512_and_si512(a_i4x2_vec, i4_nibble_vec);
-    a_i8_high_vec = _mm512_and_si512(_mm512_srli_epi64(a_i4x2_vec, 4), i4_nibble_vec);
+    a_i8_low_vec = _mm512_and_si512(a_i4x2_vec, i4_nibble_vec); // 每个i8的低位
+    a_i8_high_vec = _mm512_and_si512(_mm512_srli_epi64(a_i4x2_vec, 4), i4_nibble_vec); // 每个i8的高位, 这里相当于错开4位就可以了
+
+    // 这里又相当于是b的低4位
     b_i8_low_vec = _mm512_and_si512(b_i4x2_vec, i4_nibble_vec);
     b_i8_high_vec = _mm512_and_si512(_mm512_srli_epi64(b_i4x2_vec, 4), i4_nibble_vec);
+
+    // 这里相当于将: i4 --> i8, 这里a_i8_low_vec相当于是一个index
+    // 这里来细看一下shffle_epi8: a, b
+    // a -> [128] [128] [128] [128]
+    // b -> [4|4] * 16  (4bit) --> 16 * 8bit
     a_i8_low_vec = _mm512_shuffle_epi8(i4_to_i8_lookup_vec, a_i8_low_vec);
     a_i8_high_vec = _mm512_shuffle_epi8(i4_to_i8_lookup_vec, a_i8_high_vec);
     b_i8_low_vec = _mm512_shuffle_epi8(i4_to_i8_lookup_vec, b_i8_low_vec);

@@ -1309,10 +1309,18 @@ simsimd_dot_bf16_haswell_cycle:
 #pragma GCC target("avx2", "avx512f", "avx512vl", "avx512bw", "bmi2")
 #pragma clang attribute push(__attribute__((target("avx2,avx512f,avx512vl,avx512bw,bmi2"))), apply_to = function)
 
+// 将f32 * 16 --> [a0, a1, a2, a3] + [a2, a3, a0, a0] --> [a0 + a2, a1 + a3, a2 + a0, a3 + a0]
+//  --> [a0 + a2, a1 + a3, a2 + a0, a3 + a0] + [a1 + a3, a0 + a2, xxx, xx]
+//  --> [a0 + a2 + a1 + a3, xxxx, xxxx, xxxx, xxxx]
+//  --> cast128 = f32*4 --> [a0 + a2 + a1 + a3] --> 2 * hadd --> result
 SIMSIMD_INTERNAL simsimd_f64_t _simsimd_reduce_f32x16_skylake(__m512 a) {
+    // [a0 + a3, a2 + a1]
     __m512 x = _mm512_add_ps(a, _mm512_shuffle_f32x4(a, a, _MM_SHUFFLE(0, 0, 3, 2)));
+    // 提取低位即可
     __m128 r = _mm512_castps512_ps128(_mm512_add_ps(x, _mm512_shuffle_f32x4(x, x, _MM_SHUFFLE(0, 0, 0, 1))));
+    // 水平加法
     r = _mm_hadd_ps(r, r);
+    // 水平加法
     return _mm_cvtss_f32(_mm_hadd_ps(r, r));
 }
 
