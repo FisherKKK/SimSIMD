@@ -2208,6 +2208,7 @@ SIMSIMD_PUBLIC void simsimd_l2sq_i4x2_ice(simsimd_i4x2_t const *a, simsimd_i4x2_
     // 这里读取等操作都是按照i8, 但是运算是按照i4
 simsimd_l2sq_i4x2_ice_cycle:
     if (n_words < 64) {
+        // 载入剩余的点
         __mmask64 mask = (__mmask64)_bzhi_u64(0xFFFFFFFFFFFFFFFF, n_words);
         a_i4x2_vec = _mm512_maskz_loadu_epi8(mask, a);
         b_i4x2_vec = _mm512_maskz_loadu_epi8(mask, b);
@@ -2232,35 +2233,43 @@ simsimd_l2sq_i4x2_ice_cycle:
     // 这里来细看一下shffle_epi8: a, b
     // a -> [128] [128] [128] [128]
     // b -> [4|4] * 16  (4bit) --> 16 * 8bit
-    a_i8_low_vec = _mm512_shuffle_epi8(i4_to_i8_lookup_vec, a_i8_low_vec);
+    a_i8_low_vec = _mm512_shuffle_epi8(i4_to_i8_lookup_vec, a_i8_low_vec); // i4转换为i8的格式
     a_i8_high_vec = _mm512_shuffle_epi8(i4_to_i8_lookup_vec, a_i8_high_vec);
     b_i8_low_vec = _mm512_shuffle_epi8(i4_to_i8_lookup_vec, b_i8_low_vec);
     b_i8_high_vec = _mm512_shuffle_epi8(i4_to_i8_lookup_vec, b_i8_high_vec);
 
     // We can implement subtraction with a lookup table, or using `_mm512_sub_epi8`.
+    // 减法之后计算绝对值
     d_u8_low_vec = _mm512_abs_epi8(_mm512_sub_epi8(a_i8_low_vec, b_i8_low_vec));
     d_u8_high_vec = _mm512_abs_epi8(_mm512_sub_epi8(a_i8_high_vec, b_i8_high_vec));
 
     // Now we can use the lookup table to compute the squares of the 4-bit unsigned integers
     // in the low nibbles of the `d_u8_low_vec` and `d_u8_high_vec` vectors.
+    // 使用平方的lookup table
+    // 总之这个shuffle很有意思, 因为是i8中的low 4位 --> 所以只能只能选0-16个i8 --> 对应最大就是128bit
+    // 那么就是128bit --> 128bit, 这里相当于实在同一个lane中进行选择
     d2_u8_low_vec = _mm512_shuffle_epi8(u4_squares_lookup_vec, d_u8_low_vec);
     d2_u8_high_vec = _mm512_shuffle_epi8(u4_squares_lookup_vec, d_u8_high_vec);
 
+    // 计算平方之后, 后面需要加法, 加法如果是8bit将会溢出, 因此这里upcast到16bit
     // Aggregating into 16-bit integers, we need to first upcast our 8-bit values to 16 bits.
     // After that, we will perform one more operation, upcasting further into 32-bit integers.
     d2_u16_low_vec =      //
         _mm512_add_epi16( //
-            _mm512_unpacklo_epi8(d2_u8_low_vec, _mm512_setzero_si512()),
+            _mm512_unpacklo_epi8(d2_u8_low_vec, _mm512_setzero_si512()), // 取128的低64
             _mm512_unpackhi_epi8(d2_u8_low_vec, _mm512_setzero_si512()));
     d2_u16_high_vec =     //
         _mm512_add_epi16( //
-            _mm512_unpacklo_epi8(d2_u8_high_vec, _mm512_setzero_si512()),
+            _mm512_unpacklo_epi8(d2_u8_high_vec, _mm512_setzero_si512()), // 取128的高64
             _mm512_unpackhi_epi8(d2_u8_high_vec, _mm512_setzero_si512()));
+    
+    // 这里是upcast到32位进行计算
     d2_u32_vec = _mm512_add_epi32(d2_u32_vec, _mm512_unpacklo_epi16(d2_u16_low_vec, _mm512_setzero_si512()));
     d2_u32_vec = _mm512_add_epi32(d2_u32_vec, _mm512_unpacklo_epi16(d2_u16_high_vec, _mm512_setzero_si512()));
     if (n_words) goto simsimd_l2sq_i4x2_ice_cycle;
 
     // Finally, we can reduce the 16-bit integers to 32-bit integers and sum them up.
+    // 进行32的reduce
     int d2 = _mm512_reduce_add_epi32(d2_u32_vec);
     *result = d2;
 }
@@ -2344,7 +2353,10 @@ simsimd_cos_i4x2_ice_cycle:
     // Unpack the 4-bit values into 8-bit values with an empty top nibble.
     // For now, they are not really 8-bit integers, as they are not sign-extended.
     // That part will come later, using the `i4_to_i8_lookup_vec` lookup.
+
+    // 低4位
     a_i8_low_vec = _mm512_and_si512(a_i4x2_vec, i4_nibble_vec);
+    // 高4位
     a_i8_high_vec = _mm512_and_si512(_mm512_srli_epi64(a_i4x2_vec, 4), i4_nibble_vec);
     b_i8_low_vec = _mm512_and_si512(b_i4x2_vec, i4_nibble_vec);
     b_i8_high_vec = _mm512_and_si512(_mm512_srli_epi64(b_i4x2_vec, 4), i4_nibble_vec);
@@ -2352,6 +2364,8 @@ simsimd_cos_i4x2_ice_cycle:
     // Compute the squares of the 4-bit integers.
     // For symmetry we could have used 4 registers, aka "a2_i8_low_vec", "a2_i8_high_vec", "b2_i8_low_vec",
     // "b2_i8_high_vec". But the largest square value is just 64, so we can safely aggregate into 8-bit unsigned values.
+
+    // 累加平法
     a2_u8_vec = _mm512_add_epi8(_mm512_shuffle_epi8(i4_squares_lookup_vec, a_i8_low_vec),
                                 _mm512_shuffle_epi8(i4_squares_lookup_vec, a_i8_high_vec));
     b2_u8_vec = _mm512_add_epi8(_mm512_shuffle_epi8(i4_squares_lookup_vec, b_i8_low_vec),
@@ -2399,6 +2413,7 @@ simsimd_cos_i4x2_ice_cycle:
     int ab = _mm512_reduce_add_epi32(_mm512_add_epi32(ab_i32_low_vec, ab_i32_high_vec));
     unsigned short a2_u16[32], b2_u16[32];
     _mm512_storeu_si512(a2_u16, _mm512_add_epi16(a2_u16_low_vec, a2_u16_high_vec));
+    _mm512_storeu_si512(b2_u16, _mm512_add_epi16(b2_u16_low_vec, b2_u16_high_vec)); // TODO: fix bugs
     unsigned int a2 = 0, b2 = 0;
     for (int i = 0; i < 32; ++i) a2 += a2_u16[i], b2 += b2_u16[i];
     *result = _simsimd_cos_normalize_f32_haswell(ab, a2, b2);
