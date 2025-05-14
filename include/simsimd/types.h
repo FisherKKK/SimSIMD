@@ -8,11 +8,15 @@
  *  - Sized aliases for numeric types, like: `simsimd_i32_t` and `simsimd_f64_t`.
  *  - Macros for internal compiler/hardware checks, like: `_SIMSIMD_TARGET_ARM`.
  *  - Macros for feature controls, like: `SIMSIMD_TARGET_NEON`
+ *  1. 相当于对各种平台的intrinsic做一个simsimd的统一命名
+ *  2. 内部编译器或者硬件检查, `_SIMSIMD_TARGET_ARM`
+ *  3. 特征控制, `SIMSIMD_TARGET_NEON`
  */
 #ifndef SIMSIMD_TYPES_H
 #define SIMSIMD_TYPES_H
 
 // Inferring target OS: Windows, MacOS, or Linux
+// 对OS进行宏判断 --> 然后定义 _SIMSIMD_DEFINED_Platform
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
 #define _SIMSIMD_DEFINED_WINDOWS 1
 #elif defined(__APPLE__) && defined(__MACH__)
@@ -23,11 +27,12 @@
 
 // Annotation for the public API symbols:
 //
-// - `SIMSIMD_PUBLIC` is used for functions that are part of the public API.
-// - `SIMSIMD_INTERNAL` is used for internal helper functions with unstable APIs.
-// - `SIMSIMD_DYNAMIC` is used for functions that are part of the public API, but are dispatched at runtime.
-//
+// - `SIMSIMD_PUBLIC` is used for functions that are part of the public API, 公共API.
+// - `SIMSIMD_INTERNAL` is used for internal helper functions with unstable APIs, 内部使用的Helper函数API.
+// - `SIMSIMD_DYNAMIC` is used for functions that are part of the public API, but are dispatched at runtime, 运行时动态分发API.
+// *  这里可以考虑的是, 因为所有的文件都是以头文件进行外放的, 因此基本都要通过inline static修饰
 #if defined(_WIN32) || defined(__CYGWIN__)
+// 对于Window平台主要还是dllexport: dynamic link lib
 #define SIMSIMD_DYNAMIC __declspec(dllexport)
 #define SIMSIMD_PUBLIC inline static
 #define SIMSIMD_INTERNAL inline static
@@ -41,7 +46,9 @@
 #define SIMSIMD_INTERNAL inline static
 #endif
 
-// Compiling for Arm: _SIMSIMD_TARGET_ARM
+/** 针对CPU极其特性定义simsimd */
+
+// Compiling for Arm: _SIMSIMD_TARGET_ARM, 定义ARM
 #if !defined(_SIMSIMD_TARGET_ARM)
 #if defined(__aarch64__) || defined(_M_ARM64)
 #define _SIMSIMD_TARGET_ARM 1
@@ -50,7 +57,7 @@
 #endif // defined(__aarch64__) || defined(_M_ARM64)
 #endif // !defined(_SIMSIMD_TARGET_ARM)
 
-// Compiling for x86: _SIMSIMD_TARGET_X86
+// Compiling for x86: _SIMSIMD_TARGET_X86, 定义x86
 #if !defined(_SIMSIMD_TARGET_X86)
 #if defined(__x86_64__) || defined(_M_X64)
 #define _SIMSIMD_TARGET_X86 1
@@ -59,7 +66,7 @@
 #endif // defined(__x86_64__) || defined(_M_X64)
 #endif // !defined(_SIMSIMD_TARGET_X86)
 
-// Compiling for Arm: SIMSIMD_TARGET_NEON
+// Compiling for Arm: SIMSIMD_TARGET_NEON, 定义ARM_NEON
 #if !defined(SIMSIMD_TARGET_NEON) || (SIMSIMD_TARGET_NEON && !_SIMSIMD_TARGET_ARM)
 #if defined(__ARM_NEON)
 #define SIMSIMD_TARGET_NEON _SIMSIMD_TARGET_ARM
@@ -223,10 +230,12 @@
 #endif
 #endif // !defined(SIMSIMD_TARGET_SIERRA) || ...
 
+// 如下是根据不同的平台引入intrin头文件
 #if defined(_MSC_VER)
 #include <intrin.h>
 #else
 
+// 主要针对arm的架构
 #if SIMSIMD_TARGET_NEON
 #include <arm_neon.h>
 #endif
@@ -235,6 +244,7 @@
 #include <arm_sve.h>
 #endif
 
+// 主要针对intel的架构
 #if SIMSIMD_TARGET_HASWELL || SIMSIMD_TARGET_SKYLAKE || SIMSIMD_TARGET_ICE || SIMSIMD_TARGET_GENOA || \
     SIMSIMD_TARGET_SAPPHIRE || SIMSIMD_TARGET_TURIN
 #include <immintrin.h>
@@ -242,6 +252,7 @@
 
 #endif
 
+// 这里是针对sqrt运算的优化, 是否启用simsimd的sqrt运算
 #if !defined(SIMSIMD_SQRT)
 #include <math.h>
 #define SIMSIMD_SQRT(x) (sqrt(x))
@@ -257,14 +268,17 @@
 #define SIMSIMD_LOG(x) (log(x))
 #endif
 
+// FP32的除法误差
 #if !defined(SIMSIMD_F32_DIVISION_EPSILON)
 #define SIMSIMD_F32_DIVISION_EPSILON (1e-7)
 #endif
 
+// FP16的除法误差
 #if !defined(SIMSIMD_F16_DIVISION_EPSILON)
 #define SIMSIMD_F16_DIVISION_EPSILON (1e-3)
 #endif
 
+// 相当于这里按照C语言的方式进行编译, 避免CPP重载带来的问题
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -287,7 +301,7 @@ typedef double simsimd_f64_t;
 typedef simsimd_u64_t simsimd_size_t;
 typedef simsimd_f64_t simsimd_distance_t;
 
-/*  @brief  Half-precision floating-point type.
+/*  @brief  Half-precision floating-point type. 半精度浮点数: f16
  *
  *  - GCC or Clang on 64-bit Arm: `__fp16`, may require `-mfp16-format` option.
  *  - GCC or Clang on 64-bit x86: `_Float16`.
@@ -317,6 +331,7 @@ typedef _Float16 simsimd_f16_t;
 typedef unsigned short simsimd_f16_t;
 #endif
 
+// 针对半浮点数: bf16
 #if !defined(SIMSIMD_NATIVE_BF16) || SIMSIMD_NATIVE_BF16
 /**
  *  @brief  Half-precision brain-float type.
@@ -366,7 +381,7 @@ typedef unsigned short simsimd_bf16_t;
 #endif
 
 /**
- *  @brief  Alias for the half-precision floating-point type on Arm.
+ *  @brief  Alias for the half-precision floating-point type on Arm. 在Arm上的半精度别名, 针对编译器进行重命名
  *
  *  Clang and GCC bring the `float16_t` symbol when you compile for Aarch64.
  *  MSVC lacks it, and it's `vld1_f16`-like intrinsics are in reality macros,
@@ -387,6 +402,11 @@ typedef unsigned short simsimd_bf16_t;
 /*
  *  Let's make sure the sizes of the types are as expected.
  *  In C the `_Static_assert` is only available with C 11 and later.
+ *  
+ *  定义static_assert: ##是token连接符, 
+ *  eg: SIMSIMD_STATIC_ASSERT(sizeof(simsimd_b8_t) == 1, simsimd_b8_t_must_be_1_byte);
+ *  --> typedef char static_assertion_simsimd_b8_t_must_be_1_byte[sizeof(simsimd_b8_t) == 1 ? 1 : -1]
+ *  --> 如果cond不成立, 那么-1将会导致编译错误
  */
 #define SIMSIMD_STATIC_ASSERT(cond, msg) typedef char static_assertion_##msg[(cond) ? 1 : -1]
 SIMSIMD_STATIC_ASSERT(sizeof(simsimd_b8_t) == 1, simsimd_b8_t_must_be_1_byte);
@@ -404,12 +424,14 @@ SIMSIMD_STATIC_ASSERT(sizeof(simsimd_f64_t) == 8, simsimd_f64_t_must_be_8_bytes)
 SIMSIMD_STATIC_ASSERT(sizeof(simsimd_f16_t) == 2, simsimd_f16_t_must_be_2_bytes);
 SIMSIMD_STATIC_ASSERT(sizeof(simsimd_bf16_t) == 2, simsimd_bf16_t_must_be_2_bytes);
 
+// 定义解引用和赋值
 #define SIMSIMD_DEREFERENCE(x) (*(x))
 #define SIMSIMD_EXPORT(x, y) *(y) = x
 
 /**
  *  @brief  Returns the value of the half-precision floating-point number,
  *          potentially decompressed into single-precision.
+ *          将半精度 <--> 单精度, 需要区分是否编译器原生支持, 否则需要自行处理
  */
 #if !defined(SIMSIMD_F16_TO_F32)
 #if SIMSIMD_NATIVE_F16
@@ -424,6 +446,7 @@ SIMSIMD_STATIC_ASSERT(sizeof(simsimd_bf16_t) == 2, simsimd_bf16_t_must_be_2_byte
 /**
  *  @brief  Returns the value of the half-precision brain floating-point number,
  *          potentially decompressed into single-precision.
+ *          原理同上
  */
 #if !defined(SIMSIMD_BF16_TO_F32)
 #if SIMSIMD_NATIVE_BF16
@@ -435,6 +458,7 @@ SIMSIMD_STATIC_ASSERT(sizeof(simsimd_bf16_t) == 2, simsimd_bf16_t_must_be_2_byte
 #endif
 #endif
 
+// 如下还是这种类型的互相转换
 #if !defined(SIMSIMD_F32_TO_I8)
 #define SIMSIMD_F32_TO_I8(x, y) \
     *(y) = (simsimd_i8_t)((x) > 127 ? 127 : ((x) < -128 ? -128 : (int)((x) + ((x) < 0 ? -0.5f : 0.5f))))
@@ -452,13 +476,13 @@ SIMSIMD_STATIC_ASSERT(sizeof(simsimd_bf16_t) == 2, simsimd_bf16_t_must_be_2_byte
     *(y) = (simsimd_u8_t)((x) > 255 ? 255 : ((x) < 0 ? 0 : (int)((x) + ((x) < 0 ? -0.5 : 0.5))))
 #endif
 
-/** @brief  Convenience type for half-precision floating-point type conversions. */
+/** @brief  Convenience type for half-precision floating-point type conversions. f32和i32的union */
 typedef union {
     unsigned i;
     float f;
 } simsimd_f32i32_t;
 
-/** @brief  Convenience type addressing the real and imaginary parts of a half-precision complex number. */
+/** @brief  Convenience type addressing the real and imaginary parts of a half-precision complex number. 复数类型 */
 typedef struct {
     simsimd_f16_t real;
     simsimd_f16_t imag;
@@ -485,6 +509,7 @@ typedef struct {
 /**
  *  @brief  Computes `1/sqrt(x)` using the trick from Quake 3,
  *          replacing the magic numbers with the ones suggested by Jan Kadlec.
+ *          快速计算 1 / sqrt(x)的函数, 采用浮点数存储的性质, 将除法转换为更低代价的乘法和加法
  *
  *  Subsequent additions by hardware manufacturers have made this algorithm redundant for the most part.
  *  For example, on x86, Intel introduced the SSE instruction `rsqrtss` in 1999. In a 2009 benchmark on
@@ -507,6 +532,7 @@ SIMSIMD_INTERNAL simsimd_f32_t simsimd_approximate_inverse_square_root(simsimd_f
 /**
  *  @brief  Approximates `sqrt(x)` using the fast inverse square root trick
  *          with adjustments for direct square root approximation.
+ *          上述操作的倒数 --> 平方
  *
  *  Similar to `rsqrt` approximation but multiplies by `number` to get `sqrt`.
  *  This technique is useful where `sqrt` approximation is needed in performance-critical code,
@@ -531,6 +557,7 @@ SIMSIMD_INTERNAL simsimd_f32_t simsimd_approximate_log(simsimd_f32_t number) {
 /**
  *  @brief  For compilers that don't natively support the `_Float16` type,
  *          upcasts contents into a more conventional `float`.
+ *          这里相当于手动实现半精度和单精度浮点数之间的转换
  *
  *  @warning  This function won't handle boundary conditions well.
  *
@@ -602,6 +629,7 @@ SIMSIMD_INTERNAL void simsimd_f32_to_bf16(simsimd_f32_t x, simsimd_bf16_t *resul
     *(unsigned short *)result_ptr = (unsigned short)conv.i;
 }
 
+// rotate and left or right
 SIMSIMD_INTERNAL simsimd_u32_t simsimd_u32_rol(simsimd_u32_t x, int n) { return (x << n) | (x >> (32 - n)); }
 SIMSIMD_INTERNAL simsimd_u16_t simsimd_u16_rol(simsimd_u16_t x, int n) { return (x << n) | (x >> (16 - n)); }
 SIMSIMD_INTERNAL simsimd_u8_t simsimd_u8_rol(simsimd_u8_t x, int n) { return (x << n) | (x >> (8 - n)); }

@@ -843,37 +843,60 @@ SIMSIMD_PUBLIC void simsimd_vdot_f16c_sve(simsimd_f16c_t const *a_pairs, simsimd
 SIMSIMD_INTERNAL simsimd_f64_t _simsimd_reduce_f64x4_haswell(__m256d vec) {
     // Reduce the double-precision vector to a scalar
     // Horizontal add the first and second double-precision values, and third and fourth
+
+    // 这里是对f64 * 4进行水平加法
+
+    // 低位128
     __m128d vec_low = _mm256_castpd256_pd128(vec);
+    // 高位128
     __m128d vec_high = _mm256_extractf128_pd(vec, 1);
+    // 加法
     __m128d vec128 = _mm_add_pd(vec_low, vec_high);
 
     // Horizontal add again to accumulate all four values into one
+    // 实现128的水平加法
     vec128 = _mm_hadd_pd(vec128, vec128);
 
     // Convert the final sum to a scalar double-precision value and return
+    // 将最后的结果转换为f64
     return _mm_cvtsd_f64(vec128);
 }
 
+// 对__m256 reduce求和
 SIMSIMD_INTERNAL simsimd_f64_t _simsimd_reduce_f32x8_haswell(__m256 vec) {
     // Convert the lower and higher 128-bit lanes of the input vector to double precision
+
+    // 将256低位转为128, 但是编译的时候实际上是空指令
     __m128 low_f32 = _mm256_castps256_ps128(vec);
+
+    // 1表示高位转换为128, 0是低位
     __m128 high_f32 = _mm256_extractf128_ps(vec, 1);
 
     // Convert single-precision (float) vectors to double-precision (double) vectors
+    // 将4 * f32: 128 --> 4 * f64: 256
     __m256d low_f64 = _mm256_cvtps_pd(low_f32);
     __m256d high_f64 = _mm256_cvtps_pd(high_f32);
 
     // Perform the addition in double-precision
+    // 进行加法操作
     __m256d sum = _mm256_add_pd(low_f64, high_f64);
+
+    // 对f64 * 4进行reduce加法
     return _simsimd_reduce_f64x4_haswell(sum);
 }
 
+// 进行i32 * 8的reduce运算
 SIMSIMD_INTERNAL simsimd_i32_t _simsimd_reduce_i32x8_haswell(__m256i vec) {
+    // 提取低位
     __m128i low = _mm256_castsi256_si128(vec);
+    // 提取高位
     __m128i high = _mm256_extracti128_si256(vec, 1);
+    // 加法
     __m128i sum = _mm_add_epi32(low, high);
+    // 两个两个加法
     sum = _mm_hadd_epi32(sum, sum);
     sum = _mm_hadd_epi32(sum, sum);
+    // 转换成i32
     return _mm_cvtsi128_si32(sum);
 }
 
@@ -1008,10 +1031,17 @@ SIMSIMD_PUBLIC void simsimd_vdot_f32c_haswell(simsimd_f32c_t const *a_pairs, sim
     results[1] = ab_imag;
 }
 
+// 这个函数主要处理数组的尾部, 因为无法直接load, 针对f16 * 8处理
 SIMSIMD_INTERNAL __m256 _simsimd_partial_load_f16x8_haswell(simsimd_f16_t const *a, simsimd_size_t n) {
     // In case the software emulation for `f16` scalars is enabled, the `simsimd_f16_to_f32`
     // function will run. It is extremely slow, so even for the tail, let's combine serial
     // loads and stores with vectorized math.
+
+
+    // 这里因为载入的时候不一定满足8个f16
+    // 所以采用union, 将a赋值到scalars中
+    // 最后将f16 * 8 --> f32 * 8
+
     union {
         __m128i vec;
         simsimd_f16_t scalars[8];
@@ -1210,8 +1240,11 @@ SIMSIMD_PUBLIC void simsimd_dot_u8_haswell(simsimd_u8_t const *a_scalars, simsim
     *result = ab;
 }
 
+// 将bf16 * 8 --> f32 * 8, 本质上就是左移16位
 SIMSIMD_INTERNAL __m256 _simsimd_bf16x8_to_f32x8_haswell(__m128i x) {
     // Upcasting from `bf16` to `f32` is done by shifting the `bf16` values by 16 bits to the left, like:
+
+    // cast本质上不会编译成任何指令, 只是对待方式变了而已
     return _mm256_castsi256_ps(_mm256_slli_epi32(_mm256_cvtepu16_epi32(x), 16));
 }
 
@@ -1276,10 +1309,18 @@ simsimd_dot_bf16_haswell_cycle:
 #pragma GCC target("avx2", "avx512f", "avx512vl", "avx512bw", "bmi2")
 #pragma clang attribute push(__attribute__((target("avx2,avx512f,avx512vl,avx512bw,bmi2"))), apply_to = function)
 
+// 将f32 * 16 --> [a0, a1, a2, a3] + [a2, a3, a0, a0] --> [a0 + a2, a1 + a3, a2 + a0, a3 + a0]
+//  --> [a0 + a2, a1 + a3, a2 + a0, a3 + a0] + [a1 + a3, a0 + a2, xxx, xx]
+//  --> [a0 + a2 + a1 + a3, xxxx, xxxx, xxxx, xxxx]
+//  --> cast128 = f32*4 --> [a0 + a2 + a1 + a3] --> 2 * hadd --> result
 SIMSIMD_INTERNAL simsimd_f64_t _simsimd_reduce_f32x16_skylake(__m512 a) {
+    // [a0 + a3, a2 + a1]
     __m512 x = _mm512_add_ps(a, _mm512_shuffle_f32x4(a, a, _MM_SHUFFLE(0, 0, 3, 2)));
+    // 提取低位即可
     __m128 r = _mm512_castps512_ps128(_mm512_add_ps(x, _mm512_shuffle_f32x4(x, x, _MM_SHUFFLE(0, 0, 0, 1))));
+    // 水平加法
     r = _mm_hadd_ps(r, r);
+    // 水平加法
     return _mm_cvtss_f32(_mm_hadd_ps(r, r));
 }
 
