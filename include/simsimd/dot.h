@@ -75,6 +75,7 @@ SIMSIMD_PUBLIC void simsimd_vdot_bf16c_accurate(simsimd_bf16c_t const* a, simsim
 /*  SIMD-powered backends for Arm NEON, mostly using 32-bit arithmetic over 128-bit words.
  *  By far the most portable backend, covering most Arm v8 devices, over a billion phones, and almost all
  *  server CPUs produced before 2023.
+ *  手机端最主要的架构
  */
 SIMSIMD_PUBLIC void simsimd_dot_f32_neon(simsimd_f32_t const* a, simsimd_f32_t const* b, simsimd_size_t n, simsimd_distance_t* result);
 SIMSIMD_PUBLIC void simsimd_dot_f32c_neon(simsimd_f32c_t const* a, simsimd_f32c_t const* b, simsimd_size_t n, simsimd_distance_t* results);
@@ -111,6 +112,7 @@ SIMSIMD_PUBLIC void simsimd_vdot_f64c_sve(simsimd_f64c_t const* a, simsimd_f64c_
  *  Practically all modern x86 CPUs support AVX2, FMA, and F16C, making it a perfect baseline for SIMD algorithms.
  *  On other hand, there is no need to implement AVX2 versions of `f32` and `f64` functions, as those are
  *  properly vectorized by recent compilers.
+ *  对于f32和f64, 目前编译器已经能够实现较好的自动向量化
  */
 SIMSIMD_PUBLIC void simsimd_dot_f32_haswell(simsimd_f32_t const* a, simsimd_f32_t const* b, simsimd_size_t n, simsimd_distance_t* result);
 SIMSIMD_PUBLIC void simsimd_dot_f32c_haswell(simsimd_f32c_t const* a, simsimd_f32c_t const* b, simsimd_size_t n, simsimd_distance_t* results);
@@ -900,17 +902,20 @@ SIMSIMD_INTERNAL simsimd_i32_t _simsimd_reduce_i32x8_haswell(__m256i vec) {
     return _mm_cvtsi128_si32(sum);
 }
 
+// 针对haswell的浮点数内积
 SIMSIMD_PUBLIC void simsimd_dot_f32_haswell(simsimd_f32_t const *a_scalars, simsimd_f32_t const *b_scalars,
                                             simsimd_size_t count_scalars, simsimd_distance_t *results) {
-
+    // 256 == 8 * f32
     __m256 ab_vec = _mm256_setzero_ps();
     simsimd_size_t idx_scalars = 0;
     for (; idx_scalars + 8 <= count_scalars; idx_scalars += 8) {
-        __m256 a_vec = _mm256_loadu_ps(a_scalars + idx_scalars);
+        __m256 a_vec = _mm256_loadu_ps(a_scalars + idx_scalars); // 从内存载入到寄存器
         __m256 b_vec = _mm256_loadu_ps(b_scalars + idx_scalars);
-        ab_vec = _mm256_fmadd_ps(a_vec, b_vec, ab_vec);
+        ab_vec = _mm256_fmadd_ps(a_vec, b_vec, ab_vec); // 进行fma
     }
-    simsimd_f64_t ab = _simsimd_reduce_f32x8_haswell(ab_vec);
+    simsimd_f64_t ab = _simsimd_reduce_f32x8_haswell(ab_vec); // 对已计算的元素规约
+
+    // 处理tail部分
     for (; idx_scalars < count_scalars; ++idx_scalars) ab += a_scalars[idx_scalars] * b_scalars[idx_scalars];
     *results = ab;
 }
